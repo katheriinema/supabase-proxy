@@ -1,37 +1,47 @@
-export default async function handler(req, res) {
-  const url = req.query.url;
+export const config = {
+  runtime: 'edge',
+};
 
-  if (!url) {
-    return res.status(400).json({ error: 'Missing URL' });
+export default async function handler(req) {
+  const { searchParams } = new URL(req.url);
+  const targetUrl = searchParams.get('url');
+
+  if (!targetUrl) {
+    return new Response('Missing URL', { status: 400 });
   }
 
   if (req.method === 'OPTIONS') {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,PUT,DELETE,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, apikey');
-    return res.status(200).end();
-  }
-
-  try {
-    const response = await fetch(url, {
-      method: req.method,
+    return new Response(null, {
+      status: 204,
       headers: {
-        'Content-Type': req.headers['content-type'] || 'application/json',
-        'Authorization': req.headers['authorization'] || '',
-        'apikey': req.headers['apikey'] || '',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, apikey',
       },
-      body: ['GET', 'HEAD'].includes(req.method) ? undefined : req.body,
     });
-
-    const data = await response.arrayBuffer();
-    
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,PUT,DELETE,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, apikey');
-    res.status(response.status);
-    res.send(Buffer.from(data));
-  } catch (error) {
-    console.error('Proxy error:', error);
-    res.status(500).json({ error: 'Proxy failed' });
   }
+
+  const body = req.body ? await req.text() : undefined; // <<< ✨ fix: send body as text
+
+  const proxiedResponse = await fetch(targetUrl, {
+    method: req.method,
+    headers: {
+      'Content-Type': req.headers.get('content-type') || 'application/json',
+      'Authorization': req.headers.get('authorization') || '',
+      'apikey': req.headers.get('apikey') || '',
+    },
+    body: body,
+  });
+
+  const responseBody = await proxiedResponse.arrayBuffer();
+
+  return new Response(responseBody, {
+    status: proxiedResponse.status,
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, apikey',
+      'Content-Type': proxiedResponse.headers.get('content-type') || 'application/json',
+    },
+  });
 }
